@@ -21,4 +21,17 @@ The second one, in the same day, was _Harmonomics_, a Economical System of unlim
 
 The current project is my vision of how we can reach a future where privacy and free will exist and its boundaries are respected unless disruption to the system exists. To put it in simple, human, day to day life terminology. You are allowed to communicate with your partner, not to use it as a punching bag.
 
-And mainly, you have a man born right to know the truth, if obtainable.
+And mainly, you have a human born right to know the truth, if obtainable.
+
+The _Commonwealth of Truths_ is a shared cognitive infrastructure for evaluating, contextualizing, and repairing narratives based on coherence, evidence, and externality awareness.
+
+Paradoxically, the system itself never declares “truth”.
+It declares tensions, inconsistencies, omissions, and impacts.
+
+A system that helps humans see where narratives break is more powerful - and safer - than one that tells them what to believe.
+
+The idea here is to implement Harmonomics, meaning, if the systems generates profits down the line, all it's contributors are evaluated for narrative coherence contribuition and credited for it, in harMoney, to be transited to real live cash if real live cash enters the system. 
+
+I have a lot of dots to connect from machine and platform implementations to the goals I propose to achieve. Every dot you help connect, you should be credited for that and compensated accordingly. We should retrofit it to evaluate historical contributions, historical here meaning any documented contribution along the chain of human knowledge. Credit where credit is due.
+
+Because that is the only way to really, sustainably, reward wisdom.
