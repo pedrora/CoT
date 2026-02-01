@@ -9,7 +9,7 @@ This repository is intended to both propose system specs and build versions to i
 I know nearly nothing of AI development lifecycle, so help is very much appreciatted. We are building the natural evolution of wikipedia and all collected training materials, filtered for intent, accessible at the semantic level.
 This means you can integrate it into voice technology directly and have any issue discussed in no time at all.
 
-The technology behind this platform was discovered by me (Pedro R. Andrade), based on all the discoveries that predate me. I assembled it alone, based on intuition, and with the help of AI. It is called the _ToAE - Theory of Absolutely Everything_. You can check it at [https://github.com/pedro/theory-of-absolutely-everything].
+The technology behind this platform was discovered by me (Pedro R. Andrade), based on all the discoveries that predate me. I assembled it alone, based on intuition, and with the help of AI. It is called the _ToAE - Theory of Absolutely Everything_. You can check it at [https://github.com/pedrora/theory-of-absolutely-everything].
 
 When it reached a mature stage, it was introduced with the dynamic survival conditions for recursive systems mathematically studied by Deanna Martin in her Recursive Coherence v4.0 document.
 
