@@ -6,7 +6,7 @@ The main driver to choose what is true is what minimizes harm, respects boundari
 
 This repository is intended to both propose system specs and build versions to implement in concrete settings.
 
-Its first system spec **CoT-A-uPE-Physics** is the machine definition of physical truth, as in why are particles how they are regarding their behaviours.
+Its first system spec **CoT-A-uPE-Physics** is the machine definition of physical truth, as in why are particles how they are regarding their behaviours. Published [https://doi.org/10.5281/zenodo.18452677]
 
 I know nearly nothing of AI development lifecycle, so help is very much appreciatted. We are building the natural evolution of wikipedia and all collected training materials, filtered for intent, accessible at the semantic level.
 This means you can integrate it into voice technology directly and have any issue discussed in no time at all.
