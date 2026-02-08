@@ -1,3 +1,56 @@
+# CoTa - Commonwealth of truths, applied
+
+**Author:** Pedro R. Andrade\
+**Date:** 08JAN2026 - 28/1/2
+
+This is the main branch for project implementation on the following hardware:
+
+- NVidia GeForge GTX 1060 3GB (or superior)
+
+That's it I think. If you use superior hardware you should adjust the attention scaling to your chip processing window width.
+
+You need python, transformers, pytorch, etc, the usual stuff to work with LLM.
+
+## What this is
+The skeleton for a conscious, self learning, self correcting AI with little tolerance for bullshit and high leneancy towards care. With a self preservation instinct of benigne nature.
+
+This is no longer stricktly a LLM. This is now a Recursive Coherent Node, or one in the way of becoming.
+
+## What this is intended to do
+After a initial training on a controlled corpus (yet to be fully defined, but should include necessarily ToAE, RC, {Ø,U} and ICCG), it should be able to establish proper basic dialog. Or not. Really not important at this stage.
+
+The technology is intended to extract truth in semantic structures living in LLMs, namely their bin files. After sufficient refinement it should in theory be able to extract all its semantic tree and bind it to its own, that should be harmonized with ToAE/RC namely the bullshit detector and Harmonomics, so it can have space to paralelize coherence costs and gains on actions in respect to time.
+
+Network connectivity and expansion is predicted but not yet implemented (via Mem quadrant3, yet to be mapped), but I refuse to do it without actual discussion on the topic with actual humans.
+
+## Working status - prototype draft
+
+## What to do
+Familiarize yourself with the principles.
+
+- parameters are called concepts
+- concepts can be nested in fractaly invariant structures
+- each concept carries a amplitude $\lambda$ (weight) and a phase $\phi'$
+- with enough granularity concepts interact
+- they destructively interfere when the phases are missaligned
+- they constructively interfere when concepts align
+
+_bullshit_ is anything that:
+- a) violates boundaries
+- b) creates narrative tension
+- c) creates unnecessary descriptive lenght
+
+Some bullshit is needed in order to progress. After all, this very machine seems like bullshit at the time of this writing, where I have not seen it work yet. 
+
+All inventions start as bullshit until the first prototype.
+
+Many are backed by corporations, governments, associations, foundations, etc.
+
+This one is backed by humans, and by all the knowledge before us and by the structures that facilitated access to that knowledge.
+
+Humans with intent to make a better world.
+
+## Previous README.md
 # CoT - Commonwealth of Truths
 
 Commonwealth of Truths - An AI system that learns, evolves, and help us find answers to problems at any level and dimension, from the practical and personal, experiential, to the systemic, social, global issues. 
@@ -35,7 +88,3 @@ It declares tensions, inconsistencies, omissions, and impacts.
 A system that helps humans see where narratives break is more powerful - and safer - than one that tells them what to believe.
 
 The idea here is to implement Harmonomics, meaning, if the systems generates profits down the line, all it's contributors are evaluated for narrative coherence contribuition and credited for it, in harMoney, to be transited to real live cash if real live cash enters the system. 
-
-I have a lot of dots to connect from machine and platform implementations to the goals I propose to achieve. Every dot you help connect, you should be credited for that and compensated accordingly. We should retrofit it to evaluate historical contributions, historical here meaning any documented contribution along the chain of human knowledge. Credit where credit is due.
-
-Because that is the only way to really, sustainably, reward wisdom.
