@@ -65,7 +65,7 @@ Subject to **three constraints**.
 
 $$\
 \mathcal{R}_{k \rightarrow k+1}(e^{i\theta}\psi)\
-\= e^{i\theta}\mathcal{R}_{k \rightarrow k+1}$psi)\
+= e^{i\theta}\mathcal{R}_{k \rightarrow k+1}(\psi)\
 $$
 
 Meaning:
@@ -85,7 +85,7 @@ $$
 
 Where:
 
-* $epsilon\_k$ is a bounded loss term
+* $\epsilon_k$ is a bounded loss term
 
 * Prevents coherence being created “for free”
 
@@ -135,9 +135,9 @@ $$
 
 Where:
 
-* (w\_x) are context-sensitive weights
+* $w_x$ are context-sensitive weights
 
-* (Z\_j) is a normalization constant
+* $Z_j$ is a normalization constant
 
 This is **exactly** what your code is already doing implicitly with:
 
