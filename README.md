@@ -2,6 +2,8 @@
 
 Commonwealth of Truths - An AI system that learns, evolves, and help us find answers to problems at any level and dimension, from the practical and personal, experiential, to the systemic, social, global issues. 
 
+[08JAN2026] Check the development branch for activity. New prototype blueprints released and help welcomed.
+
 The main driver to choose what is true is what minimizes harm, respects boundaries and has less bullshit all together. Conflicting narratives are solved by identifying their stress points and alleviating them.
 
 This repository is intended to both propose system specs and build versions to implement in concrete settings.
