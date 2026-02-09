@@ -30,6 +30,9 @@ from appendix_a import (
 # ToAE/RC technology allows the understanding of preferred
 # narrative paths due to semantic structure stability of
 # a channel that is phase aligned with a real narrative.
+#
+# concepts are to be labeled/mapped to language whenever possible
+# as that is the whole point of this system: to communicate
 
 class Soul:
     """
