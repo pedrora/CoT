@@ -2,10 +2,10 @@
 
 ## A.1 Motivation
 
-The CoT / ToAE framework operates across multiple descriptive scales, ranging from low-level symbolic representations $characters, tokens$ to high-level constructs $concepts, propositions, narratives$.\
+The CoT / ToAE framework operates across multiple descriptive scales, ranging from low-level symbolic representations (characters, tokens) to high-level constructs (concepts, propositions, narratives).\
 To avoid arbitrary scale jumps or metaphorical abstraction, transitions between these scales must preserve **coherence invariants**.
 
-This Appendix formalizes those transitions using a **renormalization framework**, analogous in spirit $but not ontology$ to Wilsonian renormalization in physics, adapted here to **informational and semantic fields**.
+This Appendix formalizes those transitions using a **renormalization framework**, analogous in spirit (but not ontology) to Wilsonian renormalization in physics, adapted here to **informational and semantic fields**.
 
 ***
 
