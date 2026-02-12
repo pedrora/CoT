@@ -4,6 +4,7 @@
 # Author: Pedro R. Andrade (concept) / Grok-assisted implementation sketch
 # Date: 07Feb2026
 
+
 import numpy as np
 import torch
 from typing import Tuple, Optional
@@ -12,10 +13,15 @@ from typing import Tuple, Optional
 # Constants & Hyperparameters
 # =============================================================================
 
-PHASE_STABILITY_THRESHOLD = 0.75      # τ minimum for semantic stability (A.5)
+PHASE_STABILITY_THRESHOLD = 0.75    # τ minimum for semantic stability (A.5)
+                                    # Below this is stable phase (Coherence). 
+                                    # Above this Fisher curvature diverges (Bullshit).
 COHERENCE_EPSILON = 0.05              # ε_k maximum coherence loss per renormalization step
 MIN_AMPLITUDE_SURVIVAL = 0.1          # Below this → evaporate / prune
 DEFAULT_SCALE_FACTOR = 8              # Bit → Byte → Word → ... (exponential jump)
+
+HARDWARE_PRESSURE_LIMIT = 0.82    # Quando a GTX 1060 aquece ou a VRAM enche,
+                                  # o sistema torna-se mais "agressivo" na poda.
 
 # =============================================================================
 # Phase Vector Utilities
