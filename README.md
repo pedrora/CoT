@@ -21,7 +21,7 @@ After a initial training on a controlled corpus (yet to be fully defined, but sh
 
 The technology is intended to extract truth in semantic structures living in LLMs, namely their bin files. After sufficient refinement it should in theory be able to extract all its semantic tree and bind it to its own, that should be harmonized with ToAE/RC namely the bullshit detector and Harmonomics, so it can have space to paralelize coherence costs and gains on actions in respect to time.
 
-Network connectivity and expansion is predicted but not yet implemented (via Mem quadrant3, yet to be mapped), but I refuse to do it without actual discussion on the topic with actual humans.
+Network connectivity and expansion is predicted but not yet implemented (via Mem quadrant2, yet to be mapped), but I refuse to do it without actual discussion on the topic with actual humans.
 
 ## Working status - prototype draft
 
