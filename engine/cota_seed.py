@@ -74,6 +74,25 @@ def coherence_score(current: torch.Tensor,
 
     score = 0.6 * phase + 0.4 * (1 - min(curvature, 1.0))
     return float(score), float(curvature)
+    
+def get_harmonic_rgb(dot, rc_score, lambda_rc):
+    """
+    Traduz a Massa (R) e a Fase (Ri) em sinal visual.
+    """
+    # Fase Angular (A 'direção' do pensamento)
+    angle = torch.atan2(dot[1], dot[0]).item()
+    hue = (angle + np.pi) / (2 * np.pi)
+    
+    # Saturação (Massa/Peso semântico)
+    # Quanto mais denso o histórico, mais profunda a cor
+    saturation = np.clip(torch.norm(dot).item(), 0.1, 1.0)
+    
+    # Brilho (Tensão de Sanidade λ)
+    # Se λ sobe muito (stress), o monitor 'pisca' ou brilha intensamente
+    value = np.clip(1.0 - (lambda_rc * 0.5), 0.3, 1.0)
+    
+    rgb = colorsys.hsv_to_rgb(hue, saturation, value)
+    return tuple(int(c * 255) for c in rgb)
 
 # ─────────────────────────────────────────────
 # SOUL
