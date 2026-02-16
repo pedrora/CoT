@@ -1,0 +1,19 @@
+In your main stroboscopic loop, after each archive/reject:
+
+draw_soul_navigator(
+    self.history,
+    working if 'working' in locals() else self.texture_memory,
+    [diag["RC_score"] for diag in self.diagnostics_history] if hasattr(self, 'diagnostics_history') else [],
+    [diag["curvature"] for diag in self.diagnostics_history] if hasattr(self, 'diagnostics_history') else [],
+    self.concepts_history if hasattr(self, 'concepts_history') else None
+)
+
+Add to your class
+
+self.diagnostics_history = []    # list of diag dicts
+self.concepts_history = []       # list of original strings/metadata
+
+# When archiving:
+self.diagnostics_history.append(diag)
+self.concepts_history.append(original_input_text)
+
