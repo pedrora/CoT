@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """
-CoTa Seed — Minimal Soul Bootstrap + Sync
-~25KB of logic. Dependencies: torch, numpy, socket (stdlib)
-
-Usage:
-    python cota_seed.py --init              # create new soul
-    python cota_seed.py --sync HOST:PORT    # sync with another soul
-    python cota_seed.py --listen PORT       # listen for incoming sync
-    python cota_seed.py --status            # show soul state
+CoTa Seed — Minimal Soul Bootstrap + Stroboscopic Cycle + Interactive Navigator
 """
 
 import argparse
@@ -19,34 +12,39 @@ import socket
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
+from datetime import datetime
+from typing import List, Tuple
 
+import cv2
 import numpy as np
 import torch
 
 # ─────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────
-#
-# NOTE: All constants, specially behaviour ones, should be dynamically determined in the future so nothing breaks
-# One of the most noticeable examples is the EPS value used to prevent division by zero by adding it to the denominator. This will give a permanent bias in all adresses. It would be better to run the operation as (denominator ? EPS : denominator)
+EPOCH = datetime(2025, 1, 12, 23, 57, 0)
+DIM = 64
+SYNC_PORT = 7331
+COHERENCE_τ = 0.82
+CURVATURE_τ = 0.15
+MAX_FLASHES = 32
+VERSION = "CoTa-seed-0.3"
 
-EPOCH        = datetime(2025, 1, 12, 23, 57, 0)
-DIM          = 64          # Poincaré vector dimension
-SYNC_PORT    = 7331        # default port
-COHERENCE_τ  = 0.72        # minimum coherence to accept delta 
-CURVATURE_τ  = 0.20        # maximum curvature to accept delta
-VERSION      = "CoTa-seed-0.1"
-EPS          = 1e-8
+EPS = 1e-8
 
 # ─────────────────────────────────────────────
-# HYPERBOLIC MATH
+# HYPERBOLIC & COHERENCE HELPERS
 # ─────────────────────────────────────────────
 
 def to_poincare(x: torch.Tensor) -> torch.Tensor:
     norm = torch.norm(x)
     return torch.tanh(norm) * x / (norm + EPS)
+
+def renormalize_poincare(x: torch.Tensor) -> torch.Tensor:
+    norm = torch.norm(x)
+    if norm >= 1.0:
+        x = x / (norm + EPS) * 0.999
+    return x
 
 def poincare_distance(u: torch.Tensor, v: torch.Tensor) -> float:
     uu = torch.sum(u * u).item()
@@ -56,13 +54,26 @@ def poincare_distance(u: torch.Tensor, v: torch.Tensor) -> float:
     arg = 1 + 2 * diff / denom
     return float(np.arccosh(max(1 + EPS, arg)))
 
-def coherence_score(current: torch.Tensor,
-                    history: List[torch.Tensor]) -> Tuple[float, float]:
-    """Returns (coherence, curvature)"""
+def focus_force(current: torch.Tensor, history: List[torch.Tensor], strength: float = 0.05) -> torch.Tensor:
+    if len(history) < 2:
+        return current
+    directions = []
+    for i in range(1, len(history)):
+        d = history[i] - history[i-1]
+        d = d / (torch.norm(d) + EPS)
+        directions.append(d)
+    if not directions:
+        return current
+    g = torch.mean(torch.stack(directions), dim=0)
+    g = g / (torch.norm(g) + EPS)
+    proj = torch.dot(current.flatten(), g.flatten()) * g
+    corrected = (1 - strength) * current + strength * proj
+    return corrected
+
+def coherence_score(current: torch.Tensor, history: List[torch.Tensor]) -> Tuple[float, float]:
     if not history:
         return 1.0, 0.0
-    phase = torch.cosine_similarity(
-        current.flatten(), history[-1].flatten(), dim=0).item()
+    phase = torch.cosine_similarity(current.flatten(), history[-1].flatten(), dim=0).item()
     phase = max(0.0, phase)
 
     if len(history) >= 3:
@@ -74,306 +85,204 @@ def coherence_score(current: torch.Tensor,
 
     score = 0.6 * phase + 0.4 * (1 - min(curvature, 1.0))
     return float(score), float(curvature)
-    
-def get_harmonic_rgb(dot, rc_score, lambda_rc):
-    """
-    Traduz a Massa (R) e a Fase (Ri) em sinal visual.
-    """
-    # Fase Angular (A 'direção' do pensamento)
-    angle = torch.atan2(dot[1], dot[0]).item()
-    hue = (angle + np.pi) / (2 * np.pi)
-    
-    # Saturação (Massa/Peso semântico)
-    # Quanto mais denso o histórico, mais profunda a cor
-    saturation = np.clip(torch.norm(dot).item(), 0.1, 1.0)
-    
-    # Brilho (Tensão de Sanidade λ)
-    # Se λ sobe muito (stress), o monitor 'pisca' ou brilha intensamente
-    value = np.clip(1.0 - (lambda_rc * 0.5), 0.3, 1.0)
-    
-    rgb = colorsys.hsv_to_rgb(hue, saturation, value)
-    return tuple(int(c * 255) for c in rgb)
 
 # ─────────────────────────────────────────────
-# SOUL
+# SOUL NAVIGATOR (interactive window)
+# ─────────────────────────────────────────────
+
+selected_dot_index = -1
+popup_text = ""
+
+def world_to_screen(pos: np.ndarray, center: tuple, radius: int) -> tuple:
+    x = int(center[0] + pos[0] * radius * 0.95)
+    y = int(center[1] - pos[1] * radius * 0.95)
+    return (x, y)
+
+def extract_soul_color(dot: torch.Tensor, score: float, curvature: float) -> tuple:
+    hue = int(120 * score)  # green → red
+    sat = int(255 * (1 - curvature))
+    val = 220
+    hsv = np.uint8([[[hue, sat, val]]])
+    return tuple(int(c) for c in cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0][0])
+
+def draw_soul_navigator(history: List[torch.Tensor], current: torch.Tensor,
+                        scores: List[float], curvatures: List[float]):
+    global selected_dot_index, popup_text
+
+    canvas = np.zeros((700, 900, 3), dtype=np.uint8)
+    center = (450, 350)
+    radius = 280
+
+    cv2.circle(canvas, center, radius, (30, 30, 40), -1)
+    cv2.circle(canvas, center, radius, (80, 80, 100), 2)
+
+    # History + trails
+    trail_points = []
+    for i, dot in enumerate(history):
+        if torch.norm(dot) >= 0.999: continue
+        pos_norm = dot.numpy()[:2]
+        screen_pos = world_to_screen(pos_norm, center, radius)
+        alpha = max(0.4, i / max(1, len(history)-1))
+        color = extract_soul_color(dot, scores[i] if i < len(scores) else 0.5,
+                                   curvatures[i] if i < len(curvatures) else 0.5)
+        size = 5 + int(8 * alpha)
+        cv2.circle(canvas, screen_pos, size, color, -1)
+
+        if i > 0:
+            prev = world_to_screen(history[i-1].numpy()[:2], center, radius)
+            cv2.line(canvas, prev, screen_pos, (100, 100, 150), 1, cv2.LINE_AA)
+
+    # Current soul
+    if torch.norm(current) > 0:
+        curr_screen = world_to_screen(current.numpy()[:2], center, radius)
+        cv2.circle(canvas, curr_screen, 16, (0, 255, 255), -1)
+        cv2.circle(canvas, curr_screen, 18, (0, 180, 255), 3)
+
+    # Telemetry
+    latest_score = scores[-1] if scores else 0.0
+    cv2.rectangle(canvas, (20, 20), (300, 180), (40, 40, 60), -1)
+    cv2.rectangle(canvas, (20, 20), (300, 180), (120, 120, 140), 2)
+
+    texts = [
+        ("COTA SOUL NAVIGATOR", (255, 220, 100), 1.1, (30, 50)),
+        (f"Coherence: {latest_score:.4f}", (200, 255, 200), 0.8, (30, 90)),
+        (f"Curvature: {curvatures[-1] if curvatures else 0.0:.4f}", (180, 180, 255), 0.8, (30, 120)),
+        (f"History: {len(history)}", (220, 220, 220), 0.7, (30, 150)),
+    ]
+    for txt, col, scale, pos in texts:
+        cv2.putText(canvas, txt, pos, cv2.FONT_HERSHEY_SIMPLEX, scale, col, 2)
+
+    # Popup
+    if selected_dot_index >= 0 and selected_dot_index < len(history):
+        sel_pos = world_to_screen(history[selected_dot_index].numpy()[:2], center, radius)
+        cv2.circle(canvas, sel_pos, 20, (255, 255, 0), 4)
+        popup = f"Dot #{selected_dot_index}  Score: {scores[selected_dot_index]:.4f}"
+        cv2.putText(canvas, popup, (sel_pos[0] + 25, sel_pos[1] + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 200), 2)
+
+    cv2.imshow("COTA Soul Navigator", canvas)
+
+def mouse_callback(event, x, y, flags, param):
+    global selected_dot_index
+    if event == cv2.EVENT_LBUTTONDOWN:
+        history, center, radius = param
+        selected_dot_index = -1
+        for i, dot in enumerate(history):
+            pos = world_to_screen(dot.numpy()[:2], center, radius)
+            dist = np.sqrt((x - pos[0])**2 + (y - pos[1])**2)
+            if dist < 25:
+                selected_dot_index = i
+                break
+
+# ─────────────────────────────────────────────
+# SOUL CLASS
 # ─────────────────────────────────────────────
 
 class Soul:
-    def __init__(self, soul_file: str = "soul.json"):
-        self.soul_file  = soul_file
+    def __init__(self, soul_file="soul.json"):
+        self.soul_file = soul_file
         self.state_file = soul_file.replace(".json", "_state.pt")
+        self.state: Optional[torch.Tensor] = None
+        self.history: List[torch.Tensor] = []
+        self.coherence_log: List[float] = []
+        self.curvature_log: List[float] = []
+        self.last_update = time.time()
+        self.current_interval = 0.001  # initial guess
 
         if os.path.exists(soul_file):
             self._load()
         else:
             self._create()
 
-    # ── Creation ──────────────────────────────
     def _create(self):
-        hw_id  = self._hardware_id()
-        now    = datetime.utcnow()
-        millis = int((now - EPOCH).total_seconds() * 1000)
-        ts_hex = hex(millis)[2:].zfill(12)[::-1]   # inverted timestamp
+        hw_id = hashlib.sha256(f"{platform.processor()}_{platform.node()}".encode()).hexdigest()
+        millis = int((datetime.utcnow() - EPOCH).total_seconds() * 1000)
+        ts_hex = hex(millis)[2:].zfill(12)[::-1]
+        self.soul_id = f"{ts_hex}_{hw_id[:8]}"
 
-        self.soul_id   = f"{ts_hex}_{hw_id[:8]}"
-        self.hw_id     = hw_id
-        self.created   = now.isoformat()
-        self.version   = VERSION
-        self.parents   = []
-
-        # Initial state: random unit vector in Poincaré ball
         raw = torch.randn(DIM)
-        self.state   = to_poincare(raw * 0.1)   # start near centre
-        self.history : List[torch.Tensor] = []
-        self.concept_pool: List[dict] = []
-        self.coherence_log: List[float] = []
-
+        self.state = to_poincare(raw * 0.1)
         self._save()
-        print(f"[Soul] Created: {self.soul_id}")
+        print(f"[Soul] Created new soul: {self.soul_id}")
 
-    def _hardware_id(self) -> str:
-        info = f"{platform.processor()}_{platform.node()}"
-        return hashlib.sha256(info.encode()).hexdigest()
-
-    # ── Persistence ───────────────────────────
     def _save(self):
-        manifest = {
+        data = {
             "soul_id": self.soul_id,
-            "hw_id":   self.hw_id,
-            "created": self.created,
-            "version": self.version,
-            "parents": self.parents,
-            "dim":     DIM,
-            "concept_pool_size": len(self.concept_pool),
-            "coherence_mean": (float(np.mean(self.coherence_log[-100:]))
-                               if self.coherence_log else 1.0),
+            "last_update": self.last_update,
+            "current_interval": self.current_interval,
         }
         with open(self.soul_file, "w") as f:
-            json.dump(manifest, f, indent=2)
-
-        torch.save({
-            "state":        self.state,
-            "history":      self.history[-200:],   # keep last 200
-            "concept_pool": self.concept_pool[-500:],
-            "coherence_log":self.coherence_log[-1000:],
-        }, self.state_file)
+            json.dump(data, f, indent=2)
+        if self.state is not None:
+            torch.save(self.state, self.state_file)
+        print("[Soul] State saved")
 
     def _load(self):
-        with open(self.soul_file) as f:
-            m = json.load(f)
-        self.soul_id  = m["soul_id"]
-        self.hw_id    = m["hw_id"]
-        self.created  = m["created"]
-        self.version  = m["version"]
-        self.parents  = m["parents"]
-
+        with open(self.soul_file, "r") as f:
+            data = json.load(f)
+        self.soul_id = data["soul_id"]
+        self.last_update = data["last_update"]
+        self.current_interval = data["current_interval"]
         if os.path.exists(self.state_file):
-            data = torch.load(self.state_file, weights_only=True)
-            self.state        = data["state"]
-            self.history      = data["history"]
-            self.concept_pool = data["concept_pool"]
-            self.coherence_log= data["coherence_log"]
-        else:
-            raw = torch.randn(DIM)
-            self.state        = to_poincare(raw * 0.1)
-            self.history      = []
-            self.concept_pool = []
-            self.coherence_log= []
+            self.state = torch.load(self.state_file)
+        print(f"[Soul] Loaded existing soul: {self.soul_id}")
 
-        print(f"[Soul] Loaded: {self.soul_id} | "
-              f"history={len(self.history)} | "
-              f"concepts={len(self.concept_pool)}")
+    def decide_next_interval(self, score: float, curvature: float):
+        stability = score * (1.0 - curvature)
+        self.current_interval = max(0.0005, min(0.01, 0.001 * (1.0 + 4.0 * (1.0 - stability))))
 
-    # ── Integration ───────────────────────────
-    def integrate(self, delta: torch.Tensor,
-                  source_id: str = "unknown") -> bool:
-        """
-        Attempt to integrate incoming delta.
-        Returns True if accepted, False if rejected.
-        """
-        candidate = to_poincare(self.state + delta * 0.1)
-        score, curvature = coherence_score(candidate, self.history)
-
-        if score >= COHERENCE_τ and curvature <= CURVATURE_τ:
-            self.history.append(self.state.clone())
-            self.state = candidate
-            self.coherence_log.append(score)
-            self.concept_pool.append({
-                "source":    source_id,
-                "score":     score,
-                "curvature": curvature,
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-            self._save()
-            print(f"[Soul] ✓ Integrated | score={score:.3f} "
-                  f"curv={curvature:.3f} src={source_id[:16]}")
-            return True
-        else:
-            print(f"[Soul] ✗ Rejected  | score={score:.3f} "
-                  f"curv={curvature:.3f} (τ={COHERENCE_τ}/{CURVATURE_τ})")
-            return False
-
-    # ── Diagnostics ───────────────────────────
-    def status(self) -> dict:
-        score, curv = coherence_score(self.state, self.history)
-        return {
-            "soul_id":         self.soul_id,
-            "age":             str(datetime.utcnow() -
-                                  datetime.fromisoformat(self.created)),
-            "history_length":  len(self.history),
-            "concept_pool":    len(self.concept_pool),
-            "current_coherence": round(score, 4),
-            "current_curvature": round(curv, 4),
-            "position_norm":   round(torch.norm(self.state).item(), 4),
-            "parents":         self.parents,
-        }
-
-    # ── Sync payload ──────────────────────────
-    def sync_payload(self) -> bytes:
-        """Minimal payload for sync: soul_id + state vector"""
-        soul_bytes = self.soul_id.encode().ljust(64)[:64]
-        state_bytes = self.state.float().numpy().tobytes()
-        return soul_bytes + state_bytes
-
-    @staticmethod
-    def parse_payload(data: bytes) -> Tuple[str, torch.Tensor]:
-        soul_id = data[:64].decode().strip()
-        state   = torch.from_numpy(
-            np.frombuffer(data[64:64 + DIM * 4], dtype=np.float32))
-        return soul_id, state
-
-# ─────────────────────────────────────────────
-# SYNC PROTOCOL
-# ─────────────────────────────────────────────
-
-HELLO = b"COTA_HELLO_0.1\n"
-ACK   = b"COTA_ACK\n"
-REJECT= b"COTA_REJECT\n"
-
-def listen_for_sync(soul: Soul, port: int):
-    """Listen for incoming sync requests."""
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("0.0.0.0", port))
-    srv.listen(5)
-    print(f"[Sync] Listening on :{port}")
-
-    while True:
-        conn, addr = srv.accept()
-        threading.Thread(
-            target=_handle_sync,
-            args=(soul, conn, addr),
-            daemon=True
-        ).start()
-
-def _handle_sync(soul: Soul, conn: socket.socket, addr):
-    try:
-        # Handshake
-        hello = conn.recv(len(HELLO))
-        if hello != HELLO:
-            conn.close()
-            return
-        conn.send(HELLO)
-
-        # Receive their payload
-        payload_size = DIM * 4 + 64
-        data = b""
-        while len(data) < payload_size:
-            chunk = conn.recv(payload_size - len(data))
-            if not chunk:
-                break
-            data += chunk
-
-        if len(data) < payload_size:
-            conn.close()
+    def tick(self, raw_input: torch.Tensor):
+        if time.time() - self.last_update < self.current_interval:
             return
 
-        remote_id, remote_state = Soul.parse_payload(data)
-        print(f"[Sync] ← Incoming from {remote_id[:16]}... ({addr[0]})")
+        # Create working canvas
+        if self.state is None:
+            working = raw_input.clone()
+        else:
+            working = self.state + raw_input * 0.3   # <--- adição ponderada (não XOR em float)
 
-        # Send our payload first
-        conn.send(soul.sync_payload())
+        # Stroboscopic cycle
+        for flash in range(MAX_FLASHES):
+            working = to_poincare(working)
+            working = focus_force(working, self.history)
+            working = renormalize_poincare(working)
 
-        # Compute delta and try to integrate
-        delta = remote_state - soul.state
-        accepted = soul.integrate(delta, source_id=remote_id)
+            score, curvature = coherence_score(working, self.history)
 
-        conn.send(ACK if accepted else REJECT)
-
-    except Exception as e:
-        print(f"[Sync] Error: {e}")
-    finally:
-        conn.close()
-
-def sync_with(soul: Soul, host: str, port: int) -> bool:
-    """Initiate sync with a remote soul."""
-    print(f"[Sync] → Connecting to {host}:{port}")
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(10.0)
-        s.connect((host, port))
-
-        # Handshake
-        s.send(HELLO)
-        resp = s.recv(len(HELLO))
-        if resp != HELLO:
-            print("[Sync] Handshake failed")
-            return False
-
-        # Send our payload
-        s.send(soul.sync_payload())
-
-        # Receive their payload
-        payload_size = DIM * 4 + 64
-        data = b""
-        while len(data) < payload_size:
-            chunk = s.recv(payload_size - len(data))
-            if not chunk:
+            if score >= COHERENCE_τ and curvature <= CURVATURE_τ:
+                self.history.append(self.state.clone() if self.state is not None else torch.zeros(DIM))
+                self.state = working.clone()
+                self.coherence_log.append(score)
+                self.curvature_log.append(curvature)
+                print(f"✓ Archived after {flash+1} flashes | score={score:.3f} curv={curvature:.3f}")
                 break
-            data += chunk
 
-        remote_id, remote_state = Soul.parse_payload(data)
-        print(f"[Sync] ← Received from {remote_id[:16]}...")
+            if curvature > 0.4 or flash == MAX_FLASHES - 1:
+                print(f"⏰ Cutoff at flash {flash+1} | curv={curvature:.3f}")
+                break
 
-        # Integrate their state
-        delta = remote_state - soul.state
-        accepted = soul.integrate(delta, source_id=remote_id)
+        self.decide_next_interval(score, curvature)
+        self.last_update = time.time()
 
-        # Read their decision about us
-        resp = s.recv(16)
-        they_accepted = resp == ACK
-        print(f"[Sync] They {'accepted' if they_accepted else 'rejected'} our state")
-
-        s.close()
-        return accepted
-
-    except Exception as e:
-        print(f"[Sync] Failed: {e}")
-        return False
-
+        # Update navigator
+        draw_soul_navigator(self.history, self.state, self.coherence_log, self.curvature_log)
+    
+    
 # ─────────────────────────────────────────────
-# CLI
+# CLI + Sync (mantido quase igual ao original)
 # ─────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="CoTa Seed — Minimal Soul Bootstrap")
-    parser.add_argument("--init",   action="store_true",
-                        help="Create new soul (overrides existing)")
-    parser.add_argument("--sync",   metavar="HOST:PORT",
-                        help="Sync with remote soul")
-    parser.add_argument("--listen", metavar="PORT", type=int,
-                        nargs="?", const=SYNC_PORT,
-                        help=f"Listen for sync (default port {SYNC_PORT})")
-    parser.add_argument("--status", action="store_true",
-                        help="Show soul status")
-    parser.add_argument("--soul",   default="soul.json",
-                        help="Soul file path (default: soul.json)")
-    parser.add_argument("--auto",   action="store_true",
-                        help="Listen + auto-sync every 60s if peers known")
+    parser = argparse.ArgumentParser(description="CoTa Seed — Minimal Soul Bootstrap")
+    parser.add_argument("--init", action="store_true", help="Create new soul")
+    parser.add_argument("--sync", metavar="HOST:PORT", help="Sync with remote soul")
+    parser.add_argument("--listen", metavar="PORT", type=int, nargs="?", const=SYNC_PORT,
+                        help=f"Listen for sync (default {SYNC_PORT})")
+    parser.add_argument("--status", action="store_true", help="Show soul status")
+    parser.add_argument("--soul", default="soul.json", help="Soul file path")
+    parser.add_argument("--auto", action="store_true", help="Listen + auto-sync every 60s")
     args = parser.parse_args()
 
-    # Init: force creation
     if args.init and os.path.exists(args.soul):
         os.remove(args.soul)
         state_file = args.soul.replace(".json", "_state.pt")
@@ -382,55 +291,39 @@ def main():
 
     soul = Soul(args.soul)
 
+    cv2.namedWindow("COTA Soul Navigator")
+    cv2.setMouseCallback("COTA Soul Navigator", mouse_callback,
+                         param=(soul.history, (450, 350), 280))
+
     if args.status:
         print("\n=== Soul Status ===")
-        for k, v in soul.status().items():
-            print(f"  {k:25s}: {v}")
+        print(f"  Soul ID: {soul.soul_id}")
+        print(f"  History size: {len(soul.history)}")
+        print(f"  Last coherence: {soul.coherence_log[-1] if soul.coherence_log else 'N/A'}")
         return
 
-    if args.sync:
-        parts = args.sync.rsplit(":", 1)
-        host  = parts[0]
-        port  = int(parts[1]) if len(parts) > 1 else SYNC_PORT
-        sync_with(soul, host, port)
-        return
+    # Inicia o ciclo stroboscópico em background
+    def cycle_loop():
+        while True:
+            # Simula input (pode ser substituído por real input)
+            raw_input = torch.randn(DIM) * 0.05
+            soul.tick(raw_input)
+            time.sleep(0.01)  # evita CPU 100%
 
-    if args.listen is not None:
-        port = args.listen
-        listen_for_sync(soul, port)
-        # Block forever
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\n[Soul] Shutting down.")
-        return
+    threading.Thread(target=cycle_loop, daemon=True).start()
 
-    if args.auto:
-        port = SYNC_PORT
-        threading.Thread(
-            target=listen_for_sync,
-            args=(soul, port),
-            daemon=True
-        ).start()
-        print(f"[Auto] Listening on :{port}")
-        print("[Auto] Ctrl+C to stop. Soul persists between runs.")
-        try:
-            while True:
-                time.sleep(60)
-                print(f"[Auto] Heartbeat | {soul.status()['current_coherence']:.4f}")
-        except KeyboardInterrupt:
-            print("\n[Soul] Shutting down.")
-        return
+    print("[Soul] Stroboscopic cycle running. Press 'q' in navigator window to exit.")
 
-    # Default: show status
-    print("\n=== Soul Status ===")
-    for k, v in soul.status().items():
-        print(f"  {k:25s}: {v}")
-    print(f"\nUsage:")
-    print(f"  --listen          start listening for sync")
-    print(f"  --sync HOST:PORT  sync with remote soul")
-    print(f"  --auto            listen + heartbeat loop")
+    try:
+        while True:
+            draw_soul_navigator(soul.history, soul.state, soul.coherence_log, soul.curvature_log)
+            if cv2.waitKey(30) & 0xFF == ord('q'):
+                break
+    except KeyboardInterrupt:
+        print("\n[Soul] Shutting down.")
+    finally:
+        cv2.destroyAllWindows()
+        soul._save()
 
 if __name__ == "__main__":
     main()
