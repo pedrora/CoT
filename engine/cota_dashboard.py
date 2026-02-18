@@ -85,9 +85,9 @@ with st.sidebar:
     raw_text = st.text_area("Inject concept / text", height=100)
     if st.button("Send") and raw_text.strip():
         # Converte texto em tensor dummy (substitui por embedding real depois)
-        seed = hash(raw_text) % 1000 / 1000.0
-        raw_input = torch.randn(64) * 0.1 + torch.tensor(seed)
-        soul['pending_input'] = (raw_input, raw_text.strip())
+        st.session_state.pending_input = raw_text.strip()
+        st.success("Input enfileirado! O ciclo vai processar na próxima iteração.")
+        soul['pending_input'] = (raw_text, raw_text.strip())
     
     st.slider("Coherence τ", 0.5, 0.95, soul['tau'], key='tau_slider')
     soul['tau'] = st.session_state.tau_slider
@@ -142,9 +142,23 @@ if soul['running']:
     time.sleep(0.1)
 
 # ─── Interface principal ───
-tab1, tab2, tab3 = st.tabs(["Live Monitor", "History", "Metrics"])
-
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Live memory", "Injected", "Live Monitor", "History", "Metrics"])
 with tab1:
+    st.subheader("Memória Atual da Alma (Texto Decodificado)")
+    if 'soul_memory_text' in st.session_state:
+        st.code(st.session_state.soul_memory_text, language="text")
+    else:
+        st.info("Alma ainda vazia ou sem texto legível.")
+
+with tab2:
+    st.subheader("Conceitos Injetados")
+    if 'soul_concepts' in st.session_state and st.session_state.soul_concepts:
+        for i, concept in enumerate(st.session_state.soul_concepts):
+            st.write(f"#{i+1}: {concept}")
+    else:
+        st.info("Nenhum conceito injetado ainda.")
+        
+with tab3:
     st.subheader("Live Soul Position (Poincaré Ball)")
 
     fig = go.Figure()
@@ -183,20 +197,20 @@ with tab1:
 
     st.plotly_chart(fig, use_container_width=True)
 
-with tab2:
+with tab4:
     st.subheader("Archived Concepts")
     if soul['history']:
         df = pd.DataFrame({
             'Index': range(len(soul['history'])),
-            'Coherence': [f"{s:.4f}" for s in soul['coherence_log']],
-            'Curvature': [f"{c:.4f}" for c in soul['curvature_log']],
-            'Concept': soul['concepts']
-        })
-        st.dataframe(df.style.highlight_max(subset=['Coherence'], color='#d4f4dd'))
+            'Coherence': soul['coherence_log'],
+            'Concept': soul.get('concepts', ['N/A'] * len(soul['history']))
+            })
+        st.dataframe(df)
+    
     else:
         st.info("No archived concepts yet. Keep running the cycle or inject text.")
 
-with tab3:
+with tab5:
     st.subheader("Real-Time Metrics")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Coherence", f"{soul['coherence_log'][-1]:.4f}" if soul['coherence_log'] else "N/A")

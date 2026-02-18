@@ -14,10 +14,15 @@ import threading
 import time
 from datetime import datetime
 from typing import List, Tuple
+from sentence_transformers import SentenceTransformer
 
 import cv2
 import numpy as np
 import torch
+#import streamlit as st
+
+# Load once at startup (outside the loop)
+model = SentenceTransformer('all-MiniLM-L6-v2')  # 384-dim → we truncate/project to 64
 
 # ─────────────────────────────────────────────
 # CONSTANTS
@@ -53,6 +58,30 @@ def poincare_distance(u: torch.Tensor, v: torch.Tensor) -> float:
     denom = (1 - uu) * (1 - vv) + EPS
     arg = 1 + 2 * diff / denom
     return float(np.arccosh(max(1 + EPS, arg)))
+
+def mobius_add(x, y, eps=1e-8):
+    x2 = torch.sum(x*x, dim=-1, keepdim=True)
+    y2 = torch.sum(y*y, dim=-1, keepdim=True)
+    xy = torch.sum(x*y, dim=-1, keepdim=True)
+
+    numerator = (1 + 2*xy + y2)*x + (1 - x2)*y
+    denominator = 1 + 2*xy + x2*y2
+
+    return numerator / (denominator + eps)
+    
+def parallel_transport(v, x, y, eps=1e-8):
+    diff = y - x
+    norm = torch.norm(diff) + eps
+    direction = diff / norm
+
+    proj = torch.sum(v * direction, dim=-1, keepdim=True) * direction
+    perp = v - proj
+
+    # pequena rotação dependente da curvatura
+    transported = perp + proj * torch.cos(norm) + torch.cross(direction, v) * torch.sin(norm)
+
+    return transported
+
 
 def focus_force(current: torch.Tensor, history: List[torch.Tensor], strength: float = 0.05) -> torch.Tensor:
     if len(history) < 2:
@@ -186,24 +215,28 @@ class Soul:
         self.history: List[torch.Tensor] = []
         self.coherence_log: List[float] = []
         self.curvature_log: List[float] = []
+        self.concepts: List[str] = []  # para guardar texto original injetado
         self.last_update = time.time()
-        self.current_interval = 0.001  # initial guess
+        self.current_interval = 0.001  # valor inicial
 
         if os.path.exists(soul_file):
             self._load()
         else:
-            self._create()
+            self._create()  # ← aqui chama _create quando novo
+            self.tangent = torch.zeros_like(self.state) # essential to phase calculations
 
     def _create(self):
+        # Cria ID único baseado em timestamp invertido + hardware
         hw_id = hashlib.sha256(f"{platform.processor()}_{platform.node()}".encode()).hexdigest()
         millis = int((datetime.utcnow() - EPOCH).total_seconds() * 1000)
-        ts_hex = hex(millis)[2:].zfill(12)[::-1]
+        ts_hex = hex(millis)[2:].zfill(12)[::-1]  # invertido
         self.soul_id = f"{ts_hex}_{hw_id[:8]}"
 
+        # Estado inicial: ruído pequeno no espaço Poincaré
         raw = torch.randn(DIM)
         self.state = to_poincare(raw * 0.1)
         self._save()
-        print(f"[Soul] Created new soul: {self.soul_id}")
+        print(f"[Soul] Criada nova alma: {self.soul_id}")
 
     def _save(self):
         data = {
@@ -215,7 +248,7 @@ class Soul:
             json.dump(data, f, indent=2)
         if self.state is not None:
             torch.save(self.state, self.state_file)
-        print("[Soul] State saved")
+        print("[Soul] Estado guardado")
 
     def _load(self):
         with open(self.soul_file, "r") as f:
@@ -225,7 +258,10 @@ class Soul:
         self.current_interval = data["current_interval"]
         if os.path.exists(self.state_file):
             self.state = torch.load(self.state_file)
-        print(f"[Soul] Loaded existing soul: {self.soul_id}")
+        print(f"[Soul] Carregada alma existente: {self.soul_id}")
+        
+
+
 
     def decide_next_interval(self, score: float, curvature: float):
         stability = score * (1.0 - curvature)
@@ -235,13 +271,17 @@ class Soul:
         if time.time() - self.last_update < self.current_interval:
             return
 
-        # Create working canvas
+        # Cria canvas de trabalho
         if self.state is None:
             working = raw_input.clone()
         else:
-            working = self.state + raw_input * 0.3   # <--- adição ponderada (não XOR em float)
+            working = mobius_add(self.state, raw_input * 0.3)
+            delta = mobius_add(-self.state, working)
+        
+        self.tangent = parallel_transport(self.tangent, self.state, working)
+        self.tangent = 0.9*self.tangent + 0.1*delta
 
-        # Stroboscopic cycle
+        # Ciclo estroboscópico
         for flash in range(MAX_FLASHES):
             working = to_poincare(working)
             working = focus_force(working, self.history)
@@ -254,19 +294,18 @@ class Soul:
                 self.state = working.clone()
                 self.coherence_log.append(score)
                 self.curvature_log.append(curvature)
-                print(f"✓ Archived after {flash+1} flashes | score={score:.3f} curv={curvature:.3f}")
+                print(f"✓ Arquivado após {flash+1} flashes | score={score:.3f} curv={curvature:.3f}")
                 break
 
             if curvature > 0.4 or flash == MAX_FLASHES - 1:
-                print(f"⏰ Cutoff at flash {flash+1} | curv={curvature:.3f}")
+                print(f"⏰ Corte em flash {flash+1} | curv={curvature:.3f}")
                 break
 
         self.decide_next_interval(score, curvature)
         self.last_update = time.time()
 
-        # Update navigator
-        draw_soul_navigator(self.history, self.state, self.coherence_log, self.curvature_log)
-    
+        # Atualiza o navigator
+        draw_soul_navigator(self.history, self.state, self.coherence_log, self.curvature_log)    
     
 # ─────────────────────────────────────────────
 # CLI + Sync (mantido quase igual ao original)
@@ -306,8 +345,22 @@ def main():
     def cycle_loop():
         while True:
             # Simula input (pode ser substituído por real input)
-            raw_input = torch.randn(DIM) * 0.05
-            soul.tick(raw_input)
+            # When injecting text (in tick or inject function)
+            if 'pending_input' in st.session_state:
+                raw_text = st.session_state.pending_input
+                del st.session_state.pending_input  # consome para não repetir
+            
+                if raw_text:
+                    emb = model.encode(raw_text, convert_to_tensor=True)  # shape (384,)
+                    emb = emb[:64]                                        # truncate to DIM=64
+                    raw_input = emb.float()                               # ready for Poincaré
+                else:
+                    raw_input = torch.randn(64) * 0.05  # fallback random
+            
+                raw_input = to_poincare(raw_input)  # now in ball
+            
+    # raw_input = torch.randn(DIM) * 0.05
+                soul.tick(raw_input)
             time.sleep(0.01)  # evita CPU 100%
 
     threading.Thread(target=cycle_loop, daemon=True).start()
