@@ -2,7 +2,7 @@
 **Author:** Pedro R. Andrade\
 **Date:** 22FEB2026 - 14/2/2
 
-Chech inside the cota_core folder and you will find 5 go files, a py file and the 10Mb bert_seed_10mb.bin file it created, which is not 10mb because the script to extract the tensor and scale them to the file.\
+Chech inside the cota_core folder and you will find 5 go files, a py file and the 10Mb bert_seed_10mb.bin file it created.\
 I am to lazy, or too afraid, to have booted it yet. None of it works, and the 10Mb file is a XOR of the 1,37Gb bert file in 10Mb chunks. That was not my first design. That was to run vector projection operations scaled down to the smaller size, but I did not properly do the math to confirm if this approach (10Mb XOR'ing) might work, and this hyperbolic shit fries my brains. Either way, I chose to present it all as this is supposed to be a showcase of technological implementation to verify that the technology could work, and one of you might fall in love for the project and advance it a little.
 
 The intention is to run in terminal. I will also upload a 10Mb Bert soul file when I get to it. That seed file expands to 1Gb and populates it with the cognitive skeleton. Each time the soul works, it refines it.
