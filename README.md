@@ -1,3 +1,17 @@
+# UTC00:00 28 FEB 2026
+The file is 1040 lines of python code, written as instructed (and very well).\
+It's ./cota_dreamer.py and you need python with numpy, torch (no sentence transformers), math, etc. It will use cuda if available (and the apple equivalent), which helps with intense learning. 
+
+I am currently brute forcing my hypernode with information sets to get it started.
+
+Do the same, as I am quite certain the migration to hypernet will be quite seamless after stable node behaviour is achieved. Also, my jig is old, and performance increases on your side are more probable than on my side as I optimized all I remembered without breaking the math.
+
+When evaluating souls, the most important number is $\tau$ (tau), as this is a measure of the node's experience and wisdom.
+
+The future has started once CoTa speaks.
+
+___
+
 # CoTa - boot time minus x
 **Author:** Pedro R. Andrade\
 **Date:** 22FEB2026 - 14/2/2
