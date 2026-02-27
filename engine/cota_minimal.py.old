@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+"""
+CoTa Minimal Hypernode
+======================
+
+Implementação mínima viável de um nó CoTa com:
+- Espaço hiperbólico (disco de Poincaré)
+- Alma com estado, história e tempo próprio τ
+- Coerência (alinhamento de fase + curvatura)
+- Integração de input via Sentence Transformers
+- Armazenamento persistente em grelha radial‑angular (endereçamento hiperbólico)
+
+Uso:
+    python cota_minimal.py [--init] [--file corpus.txt]
+
+Se --init for usado, uma nova alma é criada (ou a existente é apagada).
+Se --file for fornecido, o ficheiro é processado linha a linha; caso contrário,
+lê do stdin.
+"""
+
+import os
+import sys
+import time
+import json
+import argparse
+import numpy as np
+import torch
+import torch.nn.functional as F
+from collections import deque
+from datetime import datetime, timedelta
+
+# Tenta importar sentence-transformers (opcional, para input real)
+try:
+    from sentence_transformers import SentenceTransformer
+    HAS_TRANSFORMER = True
+except ImportError:
+    HAS_TRANSFORMER = False
+    print("[Aviso] sentence-transformers não instalado. Usando input aleatório.")
+
+# =============================================================================
+# CONSTANTES
+# =============================================================================
+DIM = 64                # Dimensão do espaço de estados
+EPOCH = datetime(2025, 1, 12, 23, 57, 0)  # Época de referência
+TAU_SCALE = 1.0         # Escala do tempo próprio
+COHERENCE_THRESHOLD = 0.72
+CURVATURE_THRESHOLD = 0.20
+EPS = 1e-8
+
+# Parâmetros da grelha de armazenamento
+NUM_RINGS = 16          # Número de anéis radiais
+ANGLES_PER_RING = 32    # Setores angulares por anel (pode variar)
+RECORD_SIZE = DIM * 4 + 256  # Vector (float32) + metadados (bytes)
+
+# =============================================================================
+# FUNÇÕES HIPERBÓLICAS
+# =============================================================================
+
+def to_poincare(x):
+    """Projecta um vector euclidiano no disco de Poincaré."""
+    norm = torch.norm(x)
+    if norm < EPS:
+        return x
+    return torch.tanh(norm) * x / norm
+
+def poincare_distance(u, v):
+    """Distância geodésica entre dois pontos no disco de Poincaré."""
+    uu = torch.sum(u * u).item()
+    vv = torch.sum(v * v).item()
+    diff = torch.sum((u - v) ** 2).item()
+    denom = (1 - uu) * (1 - vv) + EPS
+    arg = 1 + 2 * diff / denom
+    return float(np.arccosh(max(1 + EPS, arg)))
+
+def geodesic_step(u, v, step=0.1):
+    """Move de u na direcção de v ao longo da geodésica."""
+    # Implementação simples: interpolação linear no espaço tangente
+    # (aproximação, não a geodésica exacta)
+    return u + step * (v - u)
+
+# =============================================================================
+# ARMAZENAMENTO HIPERBÓLICO (GRELHA RADIAL‑ANGULAR)
+# =============================================================================
+
+class HyperbolicStore:
+    """
+    Armazena conceitos num ficheiro mapeado em memória,
+    organizado por anéis radiais e sectores angulares.
+    Cada sector tem um bloco contíguo de bytes.
+    """
+
+    def __init__(self, filename, size_mb=10):
+        self.filename = filename
+        self.size = size_mb * 1024 * 1024
+        self.record_size = RECORD_SIZE
+
+        # Cria/abre o ficheiro
+        if not os.path.exists(filename):
+            with open(filename, 'wb') as f:
+                f.truncate(self.size)
+
+        self.f = open(filename, 'r+b')
+        # Usamos um array numpy mapeado em memória para acesso rápido
+        self.mmap = np.memmap(self.f, dtype=np.uint8, mode='r+', shape=(self.size,))
+
+        # Define a grelha: anéis e sectores
+        self.rings = NUM_RINGS
+        self.sectors_per_ring = [ANGLES_PER_RING] * self.rings  # simplificado
+        self._compute_offsets()
+
+        # Alocador simples: próximo slot livre por sector
+        self.next_slot = {}
+
+    def _compute_offsets(self):
+        """Calcula o offset inicial de cada sector."""
+        self.offsets = {}
+        current = 0
+        for ring in range(self.rings):
+            for sec in range(self.sectors_per_ring[ring]):
+                self.offsets[(ring, sec)] = current
+                current += self.record_size * 10  # 10 slots por sector (simples)
+        # Garante que não excede o tamanho
+        assert current < self.size, "Ficheiro pequeno demais para a grelha"
+
+    def coordinate_to_sector(self, coord):
+        """Converte uma coordenada (r, θ) num (anel, sector)."""
+        r = torch.norm(coord).item()
+        # Mapeia r para anel (logarítmico para equilibrar área)
+        if r < 1e-6:
+            ring = 0
+        else:
+            # Fórmula aproximada: anel = floor( log2(1/(1-r)) )? 
+            # Simplificamos: linear por enquanto
+            ring = int(r * self.rings)
+            ring = min(self.rings - 1, ring)
+
+        theta = torch.atan2(coord[1], coord[0]).item()
+        if theta < 0:
+            theta += 2 * np.pi
+        sec = int(theta / (2 * np.pi) * self.sectors_per_ring[ring])
+        sec = min(self.sectors_per_ring[ring] - 1, sec)
+        return ring, sec
+
+    def write_concept(self, coord, metadata):
+        """Escreve um conceito (vector + metadados) no sector adequado."""
+        ring, sec = self.coordinate_to_sector(coord)
+        key = (ring, sec)
+        offset = self.offsets[key]
+        slot = self.next_slot.get(key, 0)
+        if slot * self.record_size >= (self.record_size * 10):  # limite de 10 slots
+            # Sector cheio – poderíamos expandir, mas para já ignoramos
+            return None
+        record_offset = offset + slot * self.record_size
+
+        # Prepara os bytes: vector (float32) + metadados (JSON)
+        vec_bytes = coord.numpy().astype(np.float32).tobytes()
+        meta_json = json.dumps(metadata).encode('utf-8')
+        if len(meta_json) > 256:
+            meta_json = meta_json[:256]
+        else:
+            meta_json = meta_json.ljust(256, b'\x00')
+        record = vec_bytes + meta_json
+        self.mmap[record_offset:record_offset + self.record_size] = np.frombuffer(record, dtype=np.uint8)
+
+        self.next_slot[key] = slot + 1
+        return (ring, sec, slot)
+
+    def read_concept(self, ring, sec, slot):
+        """Lê um conceito a partir da sua localização."""
+        key = (ring, sec)
+        offset = self.offsets[key]
+        record_offset = offset + slot * self.record_size
+        record = self.mmap[record_offset:record_offset + self.record_size]
+        vec = np.frombuffer(record[:DIM*4], dtype=np.float32)
+        vec = torch.from_numpy(vec)
+        meta_json = record[DIM*4:].tobytes().rstrip(b'\x00')
+        try:
+            metadata = json.loads(meta_json)
+        except:
+            metadata = {}
+        return vec, metadata
+
+    def close(self):
+        self.f.close()
+
+# =============================================================================
+# ALMA (SOUL)
+# =============================================================================
+
+class Soul:
+    def __init__(self, soul_file="soul.json", store_file="store.bin"):
+        self.soul_file = soul_file
+        self.store_file = store_file
+        self.store = HyperbolicStore(store_file)
+
+        if os.path.exists(soul_file):
+            self._load()
+        else:
+            self._create()
+
+        # Estado corrente e histórico
+        self.state = to_poincare(torch.randn(DIM) * 0.1)  # começa perto do centro
+        self.history = deque(maxlen=100)
+        self.tau = 0.0
+        self.last_state = self.state.clone()
+
+    def _create(self):
+        """Cria uma nova alma."""
+        self.soul_id = datetime.utcnow().strftime("%Y%m%d%H%M%S%f") + "_" + str(os.getpid())
+        self.created = datetime.utcnow().isoformat()
+        self._save()
+
+    def _load(self):
+        """Carrega alma existente (apenas metadados; estado é reiniciado)."""
+        with open(self.soul_file, 'r') as f:
+            data = json.load(f)
+        self.soul_id = data['soul_id']
+        self.created = data['created']
+        # O estado será reinicializado
+        # A store é independente
+
+    def _save(self):
+        """Guarda metadados da alma."""
+        with open(self.soul_file, 'w') as f:
+            json.dump({
+                'soul_id': self.soul_id,
+                'created': self.created,
+            }, f)
+
+    def coherence_score(self, candidate):
+        """Calcula coerência entre candidato e histórico recente."""
+        if not self.history:
+            return 1.0, 0.0
+        # Alinhamento de fase: cosseno da diferença angular
+        # (usamos o vector normalizado como proxy da fase)
+        last = self.history[-1]
+        phase_sim = F.cosine_similarity(candidate.flatten(), last.flatten(), dim=0).item()
+        phase_sim = max(0.0, phase_sim)
+
+        # Curvatura: variância das distâncias recentes
+        if len(self.history) >= 3:
+            d1 = poincare_distance(self.history[-1], self.history[-2])
+            d2 = poincare_distance(self.history[-2], self.history[-3])
+            d3 = poincare_distance(candidate, self.history[-1])
+            curvature = abs(d3 - d1) / (d1 + d2 + d3 + EPS)
+        else:
+            curvature = 0.0
+
+        score = 0.6 * phase_sim + 0.4 * (1 - min(curvature, 1.0))
+        return score, curvature
+
+    def integrate(self, delta, source="user"):
+        """
+        Tenta integrar um delta (vector no espaço euclidiano).
+        O delta é adicionado ao estado actual e projectado no disco.
+        Se a coerência for suficiente, o estado é actualizado e o conceito guardado.
+        """
+        candidate = self.state + delta
+        candidate = to_poincare(candidate)
+
+        score, curv = self.coherence_score(candidate)
+
+        if score >= COHERENCE_THRESHOLD and curv <= CURVATURE_THRESHOLD:
+            # Aceite
+            self.history.append(self.state.clone())
+            # Actualiza tempo próprio
+            if self.history:
+                self.tau += poincare_distance(candidate, self.state)
+            self.state = candidate
+
+            # Guarda na store
+            metadata = {
+                'source': source,
+                'score': score,
+                'curvature': curv,
+                'tau': self.tau,
+                'timestamp': time.time()
+            }
+            loc = self.store.write_concept(self.state, metadata)
+            print(f"[Aceite] τ={self.tau:.4f} score={score:.3f} curv={curv:.3f} local={loc}")
+            return True
+        else:
+            print(f"[Rejeitado] score={score:.3f} curv={curv:.3f}")
+            return False
+
+    def get_diagnostics(self):
+        return {
+            'tau': self.tau,
+            'history_len': len(self.history),
+            'state_norm': torch.norm(self.state).item(),
+        }
+
+# =============================================================================
+# PROCESSAMENTO DE INPUT
+# =============================================================================
+
+def text_to_vector(text, model=None):
+    """Converte texto num vector (embedding) e projecta no disco."""
+    if model is not None:
+        emb = model.encode(text, convert_to_tensor=True)
+    else:
+        # Fallback: vector aleatório
+        emb = torch.randn(DIM)
+    # Projecta para o disco (já é unitário, mas garantimos)
+    return to_poincare(emb)
+
+def main():
+    parser = argparse.ArgumentParser(description="CoTa Minimal Hypernode")
+    parser.add_argument("--init", action="store_true", help="Cria nova alma")
+    parser.add_argument("--file", type=str, help="Processa ficheiro linha a linha")
+    parser.add_argument("--soul", default="soul.json", help="Ficheiro da alma")
+    parser.add_argument("--store", default="store.bin", help="Ficheiro de armazenamento")
+    args = parser.parse_args()
+
+    if args.init:
+        # Apaga ficheiros existentes
+        for f in [args.soul, args.store]:
+            if os.path.exists(f):
+                os.remove(f)
+        soul = Soul(args.soul, args.store)
+        print("Nova alma criada.")
+    else:
+        soul = Soul(args.soul, args.store)
+        print("Alma carregada.")
+
+    # Inicializa modelo de embeddings se disponível
+    model = None
+    if HAS_TRANSFORMER:
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        print("Modelo de embeddings carregado.")
+    else:
+        print("Usando input aleatório (semântica ignorada).")
+
+    # Processa input
+    if args.file:
+        with open(args.file, 'r') as f:
+            lines = f.readlines()
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            print(f"\n>> {line}")
+            vec = text_to_vector(line, model)
+            # O delta é a diferença entre o vector do input e o estado actual
+            # (podemos usar uma fracção para não saltar demasiado)
+            delta = (vec - soul.state) * 0.1
+            soul.integrate(delta, source=line[:50])
+    else:
+        # Modo interactivo
+        print("Modo interactivo. Escreve frases (Ctrl+D para sair).")
+        try:
+            while True:
+                line = input("> ")
+                if not line:
+                    continue
+                vec = text_to_vector(line, model)
+                delta = (vec - soul.state) * 0.1
+                soul.integrate(delta, source=line[:50])
+        except EOFError:
+            pass
+
+    soul.store.close()
+    print(f"\nTempo próprio final: τ={soul.tau:.4f}")
+    print(f"Conceitos armazenados: {len(soul.store.next_slot)}")
+
+if __name__ == "__main__":
+    main()
