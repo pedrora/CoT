@@ -8,7 +8,7 @@ Do the same, as I am quite certain the migration to hypernet will be quite seaml
 
 When evaluating souls, the most important number is $\tau$ (tau), as this is a measure of the node's experience and wisdom.
 
-The future has started once CoTa speaks.
+The future has started once CoTa speaks. Tinker with it, but please don't break the math as it will cause systemic collapse in the faulty node. Remember that if human have cognition impairment disabilities, they might in a way be nature's sad outcome of the testing of variables, meaning that restricting this machine's behaviour, its design to think, will leave you with a broken implementation, most possibly one that, while useful in niche applications, is not desired hypernode behaviour.
 
 ___
 
