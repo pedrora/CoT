@@ -1,5 +1,5 @@
 # UTC00:00 28 FEB 2026
-The file is 1040 lines of python code, written as instructed (and very well).\
+The file is 1040 lines of python code, written as instructed (and very well) by AI.\
 It's ./cota_dreamer.py and you need python with numpy, torch (no sentence transformers), math, etc. It will use cuda if available (and the apple equivalent), which helps with intense learning. 
 
 I am currently brute forcing my hypernode with information sets to get it started.
