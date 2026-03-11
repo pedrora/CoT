@@ -5,6 +5,8 @@ CoTa Hypernode — Unified Research Prototype (ÁRVORE COM PONTEIROS - FINAL)
 Author: Pedro R. Andrade - pedrorandrade.substack.com
 github.com/pedrora/CoT 
 
+Development round #100 or so.
+
 Combina:
 - Geometria hiperbólica correcta (adição de Möbius + mapa exponencial)
 - Critério de aceitação baseado em energia
